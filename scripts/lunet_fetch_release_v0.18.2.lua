@@ -4,7 +4,7 @@
 --
 -- This file is a TEMPLATE: CI renders it per release as
 --   lunet_fetch_release_<tag>.lua
--- by substituting v0.9.2. Do not hand-edit rendered copies.
+-- by substituting v0.18.2. Do not hand-edit rendered copies.
 --
 -- Result layout (relative to the current working directory):
 --   .lunet/<tag>/lunet-run     (lunet-run.exe on Windows)
@@ -31,7 +31,7 @@
 -- certutil on Windows), tar (Windows 10+ ships bsdtar as tar.exe, which also
 -- reads .zip). Runs on Lua 5.1+ and LuaJIT.
 
-local RELEASE_TAG = "v0.9.2"
+local RELEASE_TAG = "v0.18.2"
 local REPO = "lua-lunet/lunet"
 
 local DEST = ".lunet/" .. RELEASE_TAG
@@ -135,16 +135,10 @@ end
 -- asset can never match a different asset's digest.
 local function fetch_expected_digest(asset)
 	local api = "https://api.github.com/repos/" .. REPO .. "/releases/tags/" .. RELEASE_TAG
-	local auth_header = ""
-	local token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
-	if token and token ~= "" then
-		auth_header = ' -H "Authorization: Bearer ' .. token .. '"'
-	end
 	local json = capture(
 		'curl -fsSL --connect-timeout 10 --max-time 30'
 			.. ' -H "Accept: application/vnd.github+json"'
 			.. ' -H "User-Agent: lunet-fetch-release"'
-			.. auth_header
 			.. ' "' .. api .. '"'
 	)
 	if not json or json == "" then

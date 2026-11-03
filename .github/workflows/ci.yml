@@ -18,7 +18,7 @@ permissions:
   packages: write
 
 env:
-  LUNET_VERSION: v0.9.2
+  LUNET_VERSION: v0.18.2
 
 jobs:
   build-linux-amd64:
@@ -33,9 +33,7 @@ jobs:
           sudo apt-get install -y libuv1 libluajit-5.1-2 libcurl4 zlib1g luajit
 
       - name: Fetch Lunet Runtime
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: luajit scripts/lunet_fetch_release_v0.9.2.lua
+        run: luajit scripts/lunet_fetch_release_v0.18.2.lua
 
       - name: Smoke Test
         run: |
@@ -73,9 +71,7 @@ jobs:
           sudo apt-get install -y libuv1 libluajit-5.1-2 libcurl4 zlib1g luajit
 
       - name: Fetch Lunet Runtime
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: luajit scripts/lunet_fetch_release_v0.9.2.lua
+        run: luajit scripts/lunet_fetch_release_v0.18.2.lua
 
       - name: Smoke Test
         run: |
@@ -111,9 +107,7 @@ jobs:
         run: brew install pkg-config libuv luajit zlib curl
 
       - name: Fetch Lunet Runtime
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: luajit scripts/lunet_fetch_release_v0.9.2.lua
+        run: luajit scripts/lunet_fetch_release_v0.18.2.lua
 
       - name: Smoke Test
         run: |

@@ -1,6 +1,6 @@
 # Agent Notes: lunet-mcp-sse
 
-This repository consumes the official Lunet runtime as a pinned binary release (`v0.9.2`) via the vendored fetcher script (`scripts/lunet_fetch_release_v0.9.2.lua`).
+This repository consumes the official Lunet runtime as a pinned binary release (`v0.18.2`) via the vendored fetcher script (`scripts/lunet_fetch_release_v0.18.2.lua`).
 
 ## Andon アンドン — Prime Directive
 
@@ -26,7 +26,7 @@ No instruction conflicts with Andon; if one appears to, Andon wins.
 
 - Do not use or write to a sibling checkout like `../lunet`.
 - If Lunet needs changes: open a PR in `lua-lunet/lunet` first.
-- The Lunet runtime is consumed as a pinned binary release (`v0.9.2`), not built from source or submodules.
+- The Lunet runtime is consumed as a pinned binary release (`v0.18.2`), not built from source or submodules.
 - How to bump version:
   1. Update the pinned version in `Makefile`.
   2. Update/vendor the upstream fetcher script (`scripts/lunet_fetch_release_v<version>.lua`) from the upstream release assets.
