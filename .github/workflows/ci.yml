@@ -136,6 +136,10 @@ jobs:
   build-windows:
     name: Build Windows amd64
     runs-on: windows-latest
+    # Non-blocking: upstream v0.18.2 Windows archive lacks lunet.jsonic et al
+    # (lua-lunet/lunet#268), so the smoke test fails. Re-block once upstream
+    # publishes a fixed Windows archive.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
