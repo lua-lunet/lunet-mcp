@@ -20,7 +20,7 @@ TIMEOUT := 10
 # Detect timeout command (GNU coreutils vs BSD)
 TIMEOUT_CMD := $(shell command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
 
-.PHONY: all build run run-info run-debug run-trace run-port test stress bench bench-heavy bench-shell stress-shell clean clean-all help
+.PHONY: all build run run-info run-debug run-trace run-port test test-framing stress bench bench-heavy bench-shell stress-shell clean clean-all help
 
 all: help
 
@@ -62,6 +62,10 @@ test:
 	@echo "Testing SSE endpoint (3 seconds)..."
 	@curl -sN --max-time 3 http://localhost:8080/sse || true
 	@echo ""
+
+# HTTP framing regression tests (lua-lunet/lunet-mcp#22, #23; server must be running)
+test-framing:
+	python3 test/test_framing_http.py
 
 # Shell-based benchmark (server must be running)
 bench-shell:
@@ -127,6 +131,7 @@ help:
 	@echo "  make run-trace   - Start with full tracing"
 	@echo "  make run-port PORT=9000 - Start on custom port"
 	@echo "  make test        - Test endpoints (server must be running)"
+	@echo "  make test-framing - HTTP framing regression tests (server must be running)"
 	@echo "  make bench-shell - Run shell-based benchmark"
 	@echo "  make stress-shell - Run shell-based stress test"
 	@echo "  make stress      - Run Lua stress test (server must be running)"
