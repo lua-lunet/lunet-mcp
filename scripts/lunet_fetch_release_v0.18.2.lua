@@ -135,10 +135,16 @@ end
 -- asset can never match a different asset's digest.
 local function fetch_expected_digest(asset)
 	local api = "https://api.github.com/repos/" .. REPO .. "/releases/tags/" .. RELEASE_TAG
+	-- Use GITHUB_TOKEN when present (e.g. CI) so the unauthenticated 60 req/h
+	-- per-IP API limit cannot rate-limit the metadata query. Vendored-copy
+	-- deviation; drop on the next upstream re-vendor.
+	local token = os.getenv("GITHUB_TOKEN")
+	local auth_header = token and (' -H "Authorization: Bearer ' .. token .. '"') or ""
 	local json = capture(
 		'curl -fsSL --connect-timeout 10 --max-time 30'
 			.. ' -H "Accept: application/vnd.github+json"'
 			.. ' -H "User-Agent: lunet-fetch-release"'
+			.. auth_header
 			.. ' "' .. api .. '"'
 	)
 	if not json or json == "" then
