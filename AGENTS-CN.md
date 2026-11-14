@@ -1,6 +1,6 @@
 [English](AGENTS.md) | 简体中文
 
-# 代理须知：lunet-mcp-sse
+# 代理须知：lunet-mcp
 
 本仓库通过内置的 fetcher 脚本（`scripts/lunet_fetch_release_v0.18.2.lua`）以固定版本的二进制发布（`v0.18.2`）形式使用官方 Lunet 运行时。
 

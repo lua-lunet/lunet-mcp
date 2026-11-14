@@ -3,7 +3,7 @@
 ## Upgrade to Lunet v0.9.2 and Switch to Binary Release Consumption
 
 ### 1. Overview & Goals
-The objective is to migrate `lunet-mcp-sse` from building the Lunet framework from source via a git submodule (`deps/lunet`) and `xmake` to consuming official upstream pre-built binary release archives (`v0.9.2`). This simplifies downstream development, eliminates compilation toolchain requirements (`xmake`, C compilers), and provides out-of-the-box editor navigation via LuaCATS / Teal type definitions.
+The objective is to migrate `lunet-mcp` from building the Lunet framework from source via a git submodule (`deps/lunet`) and `xmake` to consuming official upstream pre-built binary release archives (`v0.9.2`). This simplifies downstream development, eliminates compilation toolchain requirements (`xmake`, C compilers), and provides out-of-the-box editor navigation via LuaCATS / Teal type definitions.
 
 ### 2. Architecture & Design
 - **Binary Runtime Layout**:

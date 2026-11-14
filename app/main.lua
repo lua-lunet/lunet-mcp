@@ -45,6 +45,8 @@ local socket = require("lunet.socket")
 local trace = require("app.trace")
 
 local MCP_VERSION = "2024-11-05"
+local STREAMABLE_HTTP_VERSION = "2025-03-26"
+local SUPPORTED_PROTOCOL_VERSIONS = { STREAMABLE_HTTP_VERSION, MCP_VERSION }
 local SERVER_NAME = "lunet-tavily-mcp-demo"
 local SERVER_VERSION = "0.1.0"
 
@@ -102,7 +104,7 @@ local function json_encode(val)
     elseif t == "string" then
         return '"' .. escape_json_string(val) .. '"'
     elseif t == "table" then
-        local is_array = #val > 0 or next(val) == nil
+        local is_array = #val > 0
         if is_array then
             local parts = {}
             for i, v in ipairs(val) do
@@ -612,8 +614,15 @@ local function handle_mcp_request(msg)
     trace.debug("MCP", "Request: method=%s id=%s", method or "nil", tostring(id))
 
     if method == "initialize" then
+        local negotiated = MCP_VERSION
+        for _, v in ipairs(SUPPORTED_PROTOCOL_VERSIONS) do
+            if params.protocolVersion == v then
+                negotiated = v
+                break
+            end
+        end
         return jsonrpc_response(id, {
-            protocolVersion = MCP_VERSION,
+            protocolVersion = negotiated,
             capabilities = {
                 tools = {},
             },
@@ -642,6 +651,147 @@ end
 
 -- Session storage
 local sessions = {}
+
+-- Streamable HTTP sessions (POST /mcp transport, spec 2025-03-26)
+local mcp_sessions = {}
+
+local function mcp_error_body(code, message)
+    return json_encode({
+        jsonrpc = "2.0",
+        error = {
+            code = code,
+            message = message,
+        },
+    })
+end
+
+local function wants_sse_response(req)
+    local accept = req.headers["accept"] or ""
+    return accept:find("text/event-stream", 1, true) ~= nil
+end
+
+-- Handle POST /mcp (Streamable HTTP transport)
+local function handle_mcp_post(client, req)
+    local extra_headers = {
+        ["Access-Control-Allow-Origin"] = "*",
+    }
+
+    local function respond_json(status, body)
+        extra_headers["Content-Type"] = "application/json"
+        socket.write(client, http_response(status, extra_headers, body))
+        socket.close(client)
+    end
+
+    local function respond_sse(responses)
+        local header_str = "HTTP/1.1 200 OK\r\n"
+            .. "Content-Type: text/event-stream\r\n"
+            .. "Cache-Control: no-cache\r\n"
+            .. "Connection: close\r\n"
+        for k, v in pairs(extra_headers) do
+            header_str = header_str .. k .. ": " .. v .. "\r\n"
+        end
+        header_str = header_str .. "\r\n"
+        socket.write(client, header_str)
+        for _, r in ipairs(responses) do
+            socket.write(client, sse_event("message", r))
+        end
+        socket.close(client)
+    end
+
+    if not req.body or req.body == "" then
+        respond_json(400, mcp_error_body(-32600, "Invalid Request: empty body"))
+        return
+    end
+
+    local ok, msg = pcall(json_decode, req.body)
+    if not ok or type(msg) ~= "table" then
+        respond_json(400, mcp_error_body(-32700, "Parse error"))
+        return
+    end
+
+    local messages = {}
+    if msg[1] ~= nil then
+        for _, m in ipairs(msg) do
+            messages[#messages + 1] = m
+        end
+    else
+        messages[1] = msg
+    end
+
+    local has_initialize = false
+    for _, m in ipairs(messages) do
+        if type(m) == "table" and m.method == "initialize" then
+            has_initialize = true
+        end
+    end
+
+    if not has_initialize then
+        local session_id = req.headers["mcp-session-id"]
+        if not session_id or session_id == "" then
+            respond_json(400, mcp_error_body(-32600, "Missing Mcp-Session-Id header"))
+            return
+        end
+        if not mcp_sessions[session_id] then
+            respond_json(404, mcp_error_body(-32600, "Session not found"))
+            return
+        end
+    end
+
+    local responses = {}
+    local is_batch = msg[1] ~= nil
+    for _, m in ipairs(messages) do
+        if type(m) ~= "table" then
+            responses[#responses + 1] = jsonrpc_error(nil, -32600, "Invalid Request")
+        elseif m.method == nil and (m.result ~= nil or m.error ~= nil) then
+            trace.debug("MCP", "Ignoring client response message")
+        else
+            local response = handle_mcp_request(m)
+            if response then
+                responses[#responses + 1] = response
+            end
+        end
+    end
+
+    if has_initialize then
+        local session_id = random_id()
+        mcp_sessions[session_id] = { created = os.time() }
+        extra_headers["Mcp-Session-Id"] = session_id
+        trace.info("MCP", "Streamable HTTP session %s created", session_id)
+    end
+
+    if #responses == 0 then
+        socket.write(client, http_response(202, extra_headers, ""))
+        socket.close(client)
+        return
+    end
+
+    if wants_sse_response(req) then
+        respond_sse(responses)
+    else
+        local body = responses[1]
+        if is_batch then
+            body = "[" .. table.concat(responses, ",") .. "]"
+        end
+        respond_json(200, body)
+    end
+end
+
+-- Handle DELETE /mcp (session termination)
+local function handle_mcp_delete(client, req)
+    local session_id = req.headers["mcp-session-id"]
+    if session_id and mcp_sessions[session_id] then
+        mcp_sessions[session_id] = nil
+        trace.info("MCP", "Streamable HTTP session %s terminated", session_id)
+        socket.write(client, http_response(200, {
+            ["Access-Control-Allow-Origin"] = "*",
+        }, ""))
+    else
+        socket.write(client, http_response(404, {
+            ["Access-Control-Allow-Origin"] = "*",
+        }, ""))
+    end
+    socket.close(client)
+end
 
 -- Handle SSE connection
 local function handle_sse_request(client, session_id)
@@ -735,8 +885,9 @@ local function handle_client(client)
     if req.method == "OPTIONS" then
         socket.write(client, http_response(200, {
             ["Access-Control-Allow-Origin"] = "*",
-            ["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS",
-            ["Access-Control-Allow-Headers"] = "Content-Type",
+            ["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS",
+            ["Access-Control-Allow-Headers"] = "Content-Type, Mcp-Session-Id, Last-Event-ID, MCP-Protocol-Version",
+            ["Access-Control-Expose-Headers"] = "Mcp-Session-Id",
         }, ""))
         socket.close(client)
         return
@@ -747,6 +898,24 @@ local function handle_client(client)
         local session_id = random_id()
         handle_sse_request(client, session_id)
         return
+    end
+
+    -- Streamable HTTP endpoint (spec 2025-03-26)
+    if req.path == "/mcp" then
+        if req.method == "POST" then
+            handle_mcp_post(client, req)
+            return
+        elseif req.method == "DELETE" then
+            handle_mcp_delete(client, req)
+            return
+        elseif req.method == "GET" then
+            socket.write(client, http_response(405, {
+                ["Allow"] = "POST, DELETE",
+                ["Access-Control-Allow-Origin"] = "*",
+            }, ""))
+            socket.close(client)
+            return
+        end
     end
 
     -- Message endpoint
@@ -773,6 +942,7 @@ local function handle_client(client)
             endpoints = {
                 sse = "/sse",
                 message = "/message?session=<id>",
+                mcp = "/mcp",
             },
             tools = {},
         }
@@ -814,8 +984,10 @@ lunet.spawn(function()
         print("")
         print("Endpoints:")
         print("  GET  /       -> Server info")
-        print("  GET  /sse    -> SSE stream (creates session)")
-        print("  POST /message?session=<id> -> Send JSON-RPC message")
+        print("  GET  /sse    -> SSE stream (creates session, legacy transport)")
+        print("  POST /message?session=<id> -> Send JSON-RPC message (legacy transport)")
+        print("  POST /mcp    -> Streamable HTTP transport (JSON or SSE responses)")
+        print("  DELETE /mcp  -> Terminate Streamable HTTP session")
         print("")
         print("Tools: tavily-search")
         print("")

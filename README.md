@@ -1,8 +1,8 @@
-# lunet-mcp-sse
+# lunet-mcp
 
 [![Lunet v0.18.2](https://img.shields.io/badge/Lunet-v0.18.2-blue?logo=lua&logoColor=white)](https://github.com/lua-lunet/lunet/releases/tag/v0.18.2)
 
-A minimal MCP (Model Context Protocol) server demonstrating Tavily web search via SSE transport, built on the [Lunet](https://github.com/lua-lunet/lunet) framework.
+A minimal MCP (Model Context Protocol) server demonstrating Tavily web search, built on the [Lunet](https://github.com/lua-lunet/lunet) framework. Supports both the modern **Streamable HTTP** transport (spec 2025-03-26) and the legacy **HTTP+SSE** transport (spec 2024-11-05).
 
 ## Why Lunet?
 
@@ -19,16 +19,18 @@ Run `./compare.sh` to reproduce these benchmarks:
 
 | Implementation | Docker Image | Runtime Memory |
 |----------------|--------------|----------------|
-| **lunet-mcp-sse** | **171 MB** | **7 MB** |
+| **lunet-mcp** | **171 MB** | **7 MB** |
 | tavily-mcp (Node.js) | 420 MB | 18 MB |
 | tavily-mcp (Bun) | 382 MB | 14 MB |
 | FastMCP (Python) | 367 MB | 28 MB |
 
-lunet-mcp-sse uses **2.5x less memory** than Node.js, **2x less** than Bun, and **4x less** than Python.
+lunet-mcp uses **2.5x less memory** than Node.js, **2x less** than Bun, and **4x less** than Python.
 
 ## Features
 
-- **MCP 2024-11-05** protocol support
+- **MCP 2025-03-26** protocol support (Streamable HTTP transport)
+- **MCP 2024-11-05** legacy HTTP+SSE transport for older clients
+- **Streamable HTTP transport** — single `POST /mcp` endpoint, JSON or SSE responses, `Mcp-Session-Id` session header
 - **SSE transport** for real-time communication
 - **Tavily search** integration
 - **Memory-efficient** (~7 MB RSS in Docker, ~2 MB native)
@@ -37,14 +39,14 @@ lunet-mcp-sse uses **2.5x less memory** than Node.js, **2x less** than Bun, and 
 
 ## Downloads
 
-Pre-built binaries are available from [GitHub Releases](https://github.com/lua-lunet/lunet-mcp-sse/releases/tag/nightly):
+Pre-built binaries are available from [GitHub Releases](https://github.com/lua-lunet/lunet-mcp/releases/tag/nightly):
 
 | Platform | Archive |
 |----------|---------|
-| Linux (amd64) | `lunet-mcp-sse-linux-amd64.tar.gz` |
-| Linux (arm64) | `lunet-mcp-sse-linux-arm64.tar.gz` |
-| macOS (arm64) | `lunet-mcp-sse-macos.tar.gz` |
-| Windows (amd64) | `lunet-mcp-sse-windows-amd64.zip` |
+| Linux (amd64) | `lunet-mcp-linux-amd64.tar.gz` |
+| Linux (arm64) | `lunet-mcp-linux-arm64.tar.gz` |
+| macOS (arm64) | `lunet-mcp-macos.tar.gz` |
+| Windows (amd64) | `lunet-mcp-windows-amd64.zip` |
 
 ## Running
 
@@ -55,9 +57,9 @@ Pre-built binaries are available from [GitHub Releases](https://github.com/lua-l
 brew install luajit libuv zlib curl
 
 # Download and extract
-curl -L -o lunet-mcp-sse-macos.tar.gz \
-  https://github.com/lua-lunet/lunet-mcp-sse/releases/download/nightly/lunet-mcp-sse-macos.tar.gz
-tar -xzf lunet-mcp-sse-macos.tar.gz
+curl -L -o lunet-mcp-macos.tar.gz \
+  https://github.com/lua-lunet/lunet-mcp/releases/download/nightly/lunet-mcp-macos.tar.gz
+tar -xzf lunet-mcp-macos.tar.gz
 
 # Set up API key
 echo "TAVILY_API_KEY=your_key_here" > .env
@@ -74,9 +76,9 @@ sudo apt-get update
 sudo apt-get install -y libuv1 libluajit-5.1-2 libcurl4 zlib1g curl
 
 # Download and extract (use arm64 or amd64 as appropriate)
-curl -L -o lunet-mcp-sse-linux-arm64.tar.gz \
-  https://github.com/lua-lunet/lunet-mcp-sse/releases/download/nightly/lunet-mcp-sse-linux-arm64.tar.gz
-tar -xzf lunet-mcp-sse-linux-arm64.tar.gz
+curl -L -o lunet-mcp-linux-arm64.tar.gz \
+  https://github.com/lua-lunet/lunet-mcp/releases/download/nightly/lunet-mcp-linux-arm64.tar.gz
+tar -xzf lunet-mcp-linux-arm64.tar.gz
 
 # Set up API key
 echo "TAVILY_API_KEY=your_key_here" > .env
@@ -125,10 +127,10 @@ On macOS, use [Colima](https://github.com/abiosoft/colima) to run Linux arm64 co
 colima start
 
 # Download and extract the Linux arm64 build
-curl -L -o lunet-mcp-sse-linux-arm64.tar.gz \
-  https://github.com/lua-lunet/lunet-mcp-sse/releases/download/nightly/lunet-mcp-sse-linux-arm64.tar.gz
+curl -L -o lunet-mcp-linux-arm64.tar.gz \
+  https://github.com/lua-lunet/lunet-mcp/releases/download/nightly/lunet-mcp-linux-arm64.tar.gz
 mkdir -p linux-app
-tar -xzf lunet-mcp-sse-linux-arm64.tar.gz -C linux-app
+tar -xzf lunet-mcp-linux-arm64.tar.gz -C linux-app
 
 # Copy into Colima VM
 colima ssh -- mkdir -p /tmp/testapp
@@ -157,8 +159,39 @@ colima stop
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Server info (JSON) |
-| GET | `/sse` | SSE stream (creates session) |
-| POST | `/message?session=<id>` | Send JSON-RPC message |
+| POST | `/mcp` | Streamable HTTP transport: send JSON-RPC, get JSON or SSE response |
+| DELETE | `/mcp` | Terminate a Streamable HTTP session (`Mcp-Session-Id` header) |
+| GET | `/sse` | Legacy SSE stream (creates session) |
+| POST | `/message?session=<id>` | Legacy transport: send JSON-RPC message |
+
+### Streamable HTTP transport (recommended)
+
+The client picks the transport by which endpoint it calls. Modern clients
+(Codex, mcp-inspector, current MCP SDKs) should use `POST /mcp`:
+
+1. `POST /mcp` with an `initialize` JSON-RPC request and
+   `Accept: application/json, text/event-stream`
+2. Server replies with the result and an `Mcp-Session-Id` response header
+3. Subsequent POSTs include the `Mcp-Session-Id` header
+4. Each POST is answered on its own response with either a plain
+   `application/json` body or an SSE-formatted (`text/event-stream`) body
+5. Notifications are answered with `202 Accepted` and no body
+6. `DELETE /mcp` terminates the session
+
+```bash
+# Initialize (capture the Mcp-Session-Id header from the response)
+curl -i -X POST http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"demo","version":"0.0.1"}}}'
+
+# List tools (JSON response)
+curl -X POST http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -H "Mcp-Session-Id: <session-id>" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
 
 ## Testing
 
@@ -174,6 +207,15 @@ curl -N http://localhost:8080/sse
 ```
 
 ## MCP Protocol Flow
+
+### Streamable HTTP (spec 2025-03-26)
+
+1. Client POSTs an `initialize` JSON-RPC request to `/mcp`
+2. Server responds with the result and an `Mcp-Session-Id` header
+3. Client POSTs JSON-RPC messages to `/mcp` with the `Mcp-Session-Id` header
+4. Server answers each POST with JSON or an SSE body on that same response
+
+### Legacy HTTP+SSE (spec 2024-11-05)
 
 1. Client GETs `/sse` to establish SSE connection
 2. Server sends `endpoint` event with session ID
@@ -234,8 +276,8 @@ Consumes official pre-built Lunet v0.18.2 release archives via the vendored fetc
 
 ```bash
 # Clone the repository
-git clone https://github.com/lua-lunet/lunet-mcp-sse.git
-cd lunet-mcp-sse
+git clone https://github.com/lua-lunet/lunet-mcp.git
+cd lunet-mcp
 
 # Fetch pre-built Lunet v0.18.2 runtime and type definitions
 make build

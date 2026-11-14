@@ -1,4 +1,4 @@
-# lunet-mcp-sse Makefile
+# lunet-mcp Makefile
 #
 # A demo MCP-SSE server for Tavily search using the Lunet framework.
 # Consumes the official Lunet binary release.
@@ -114,7 +114,7 @@ clean-all: clean
 
 # Show help
 help:
-	@echo "lunet-mcp-sse"
+	@echo "lunet-mcp"
 	@echo "============="
 	@echo ""
 	@echo "A demo MCP-SSE server exposing Tavily search via the Lunet framework."
