@@ -1,10 +1,10 @@
 [English](README.md) | 简体中文
 
-# lunet-mcp-sse
+# lunet-mcp
 
 [![Lunet v0.18.2](https://img.shields.io/badge/Lunet-v0.18.2-blue?logo=lua&logoColor=white)](https://github.com/lua-lunet/lunet/releases/tag/v0.18.2)
 
-一个最小化的 MCP（Model Context Protocol）服务器，基于 [Lunet](https://github.com/lua-lunet/lunet) 框架，通过 SSE 传输演示 Tavily 网页搜索。
+一个最小化的 MCP（Model Context Protocol）服务器，基于 [Lunet](https://github.com/lua-lunet/lunet) 框架，演示 Tavily 网页搜索。同时支持现代的 **Streamable HTTP** 传输（2025-03-26 规范）与传统的 **HTTP+SSE** 传输（2024-11-05 规范）。
 
 ## 为什么选择 Lunet？
 
@@ -21,16 +21,18 @@ MCP 服务器通常部署为边车（sidecar）进程，或运行在资源受限
 
 | 实现方案 | Docker 镜像 | 运行时内存 |
 |----------------|--------------|----------------|
-| **lunet-mcp-sse** | **171 MB** | **7 MB** |
+| **lunet-mcp** | **171 MB** | **7 MB** |
 | tavily-mcp (Node.js) | 420 MB | 18 MB |
 | tavily-mcp (Bun) | 382 MB | 14 MB |
 | FastMCP (Python) | 367 MB | 28 MB |
 
-lunet-mcp-sse 的内存占用比 Node.js 少 **2.5 倍**，比 Bun 少 **2 倍**，比 Python 少 **4 倍**。
+lunet-mcp 的内存占用比 Node.js 少 **2.5 倍**，比 Bun 少 **2 倍**，比 Python 少 **4 倍**。
 
 ## 特性
 
-- **MCP 2024-11-05** 协议支持
+- **MCP 2025-03-26** 协议支持（Streamable HTTP 传输）
+- **MCP 2024-11-05** 传统 HTTP+SSE 传输，兼容旧客户端
+- **Streamable HTTP 传输** — 单一 `POST /mcp` 端点，JSON 或 SSE 响应，`Mcp-Session-Id` 会话头
 - **SSE 传输**，实时通信
 - **Tavily 搜索**集成
 - **内存高效**（Docker 中约 7 MB RSS，原生约 2 MB）
@@ -39,14 +41,14 @@ lunet-mcp-sse 的内存占用比 Node.js 少 **2.5 倍**，比 Bun 少 **2 倍**
 
 ## 下载
 
-预构建二进制可从 [GitHub Releases](https://github.com/lua-lunet/lunet-mcp-sse/releases/tag/nightly) 获取：
+预构建二进制可从 [GitHub Releases](https://github.com/lua-lunet/lunet-mcp/releases/tag/nightly) 获取：
 
 | 平台 | 压缩包 |
 |----------|---------|
-| Linux (amd64) | `lunet-mcp-sse-linux-amd64.tar.gz` |
-| Linux (arm64) | `lunet-mcp-sse-linux-arm64.tar.gz` |
-| macOS (arm64) | `lunet-mcp-sse-macos.tar.gz` |
-| Windows (amd64) | `lunet-mcp-sse-windows-amd64.zip` |
+| Linux (amd64) | `lunet-mcp-linux-amd64.tar.gz` |
+| Linux (arm64) | `lunet-mcp-linux-arm64.tar.gz` |
+| macOS (arm64) | `lunet-mcp-macos.tar.gz` |
+| Windows (amd64) | `lunet-mcp-windows-amd64.zip` |
 
 ## 运行
 
@@ -57,9 +59,9 @@ lunet-mcp-sse 的内存占用比 Node.js 少 **2.5 倍**，比 Bun 少 **2 倍**
 brew install luajit libuv zlib curl
 
 # 下载并解压
-curl -L -o lunet-mcp-sse-macos.tar.gz \
-  https://github.com/lua-lunet/lunet-mcp-sse/releases/download/nightly/lunet-mcp-sse-macos.tar.gz
-tar -xzf lunet-mcp-sse-macos.tar.gz
+curl -L -o lunet-mcp-macos.tar.gz \
+  https://github.com/lua-lunet/lunet-mcp/releases/download/nightly/lunet-mcp-macos.tar.gz
+tar -xzf lunet-mcp-macos.tar.gz
 
 # 配置 API 密钥
 echo "TAVILY_API_KEY=your_key_here" > .env
@@ -76,9 +78,9 @@ sudo apt-get update
 sudo apt-get install -y libuv1 libluajit-5.1-2 libcurl4 zlib1g curl
 
 # 下载并解压（按平台选择 arm64 或 amd64）
-curl -L -o lunet-mcp-sse-linux-arm64.tar.gz \
-  https://github.com/lua-lunet/lunet-mcp-sse/releases/download/nightly/lunet-mcp-sse-linux-arm64.tar.gz
-tar -xzf lunet-mcp-sse-linux-arm64.tar.gz
+curl -L -o lunet-mcp-linux-arm64.tar.gz \
+  https://github.com/lua-lunet/lunet-mcp/releases/download/nightly/lunet-mcp-linux-arm64.tar.gz
+tar -xzf lunet-mcp-linux-arm64.tar.gz
 
 # 配置 API 密钥
 echo "TAVILY_API_KEY=your_key_here" > .env
@@ -127,10 +129,10 @@ docker stop mcp-server && docker rm mcp-server
 colima start
 
 # 下载并解压 Linux arm64 构建
-curl -L -o lunet-mcp-sse-linux-arm64.tar.gz \
-  https://github.com/lua-lunet/lunet-mcp-sse/releases/download/nightly/lunet-mcp-sse-linux-arm64.tar.gz
+curl -L -o lunet-mcp-linux-arm64.tar.gz \
+  https://github.com/lua-lunet/lunet-mcp/releases/download/nightly/lunet-mcp-linux-arm64.tar.gz
 mkdir -p linux-app
-tar -xzf lunet-mcp-sse-linux-arm64.tar.gz -C linux-app
+tar -xzf lunet-mcp-linux-arm64.tar.gz -C linux-app
 
 # 复制进 Colima 虚拟机
 colima ssh -- mkdir -p /tmp/testapp
@@ -159,8 +161,10 @@ colima stop
 | 方法 | 路径 | 说明 |
 |--------|------|-------------|
 | GET | `/` | 服务器信息（JSON） |
-| GET | `/sse` | SSE 流（创建会话） |
-| POST | `/message?session=<id>` | 发送 JSON-RPC 消息 |
+| POST | `/mcp` | Streamable HTTP 传输：发送 JSON-RPC，返回 JSON 或 SSE 响应 |
+| DELETE | `/mcp` | 终止 Streamable HTTP 会话（`Mcp-Session-Id` 请求头） |
+| GET | `/sse` | 传统 SSE 流（创建会话） |
+| POST | `/message?session=<id>` | 传统传输：发送 JSON-RPC 消息 |
 
 ## 测试
 
@@ -176,6 +180,15 @@ curl -N http://localhost:8080/sse
 ```
 
 ## MCP 协议流程
+
+### Streamable HTTP（2025-03-26 规范）
+
+1. 客户端向 `/mcp` POST `initialize` JSON-RPC 请求
+2. 服务器返回结果并附带 `Mcp-Session-Id` 响应头
+3. 客户端携带 `Mcp-Session-Id` 请求头向 `/mcp` POST JSON-RPC 消息
+4. 服务器在该 POST 自身的响应中以 JSON 或 SSE 格式返回结果
+
+### 传统 HTTP+SSE（2024-11-05 规范）
 
 1. 客户端 GET `/sse` 建立 SSE 连接
 2. 服务器发送携带会话 ID 的 `endpoint` 事件
@@ -234,8 +247,8 @@ curl -N http://localhost:8080/sse
 
 ```bash
 # 克隆仓库
-git clone https://github.com/lua-lunet/lunet-mcp-sse.git
-cd lunet-mcp-sse
+git clone https://github.com/lua-lunet/lunet-mcp.git
+cd lunet-mcp
 
 # 获取预构建的 Lunet v0.18.2 运行时与类型定义
 make build

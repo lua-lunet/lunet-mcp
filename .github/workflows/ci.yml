@@ -50,14 +50,14 @@ jobs:
           cp -r .lunet/${{ env.LUNET_VERSION }}/* dist/
           cp -r app test dist/
           cp Makefile README.md run.sh dist/
-          [ -f lunet-mcp-sse-scm-1.rockspec ] && cp lunet-mcp-sse-scm-1.rockspec dist/ || true
-          tar -czvf lunet-mcp-sse-linux-amd64.tar.gz -C dist .
+          [ -f lunet-mcp-scm-1.rockspec ] && cp lunet-mcp-scm-1.rockspec dist/ || true
+          tar -czvf lunet-mcp-linux-amd64.tar.gz -C dist .
 
       - name: Upload amd64 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lunet-mcp-sse-linux-amd64
-          path: lunet-mcp-sse-linux-amd64.tar.gz
+          name: lunet-mcp-linux-amd64
+          path: lunet-mcp-linux-amd64.tar.gz
 
   build-linux-arm64:
     name: Build Linux arm64
@@ -88,14 +88,14 @@ jobs:
           cp -r .lunet/${{ env.LUNET_VERSION }}/* dist/
           cp -r app test dist/
           cp Makefile README.md run.sh dist/
-          [ -f lunet-mcp-sse-scm-1.rockspec ] && cp lunet-mcp-sse-scm-1.rockspec dist/ || true
-          tar -czvf lunet-mcp-sse-linux-arm64.tar.gz -C dist .
+          [ -f lunet-mcp-scm-1.rockspec ] && cp lunet-mcp-scm-1.rockspec dist/ || true
+          tar -czvf lunet-mcp-linux-arm64.tar.gz -C dist .
 
       - name: Upload arm64 Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lunet-mcp-sse-linux-arm64
-          path: lunet-mcp-sse-linux-arm64.tar.gz
+          name: lunet-mcp-linux-arm64
+          path: lunet-mcp-linux-arm64.tar.gz
 
   build-macos:
     name: Build macOS
@@ -124,14 +124,14 @@ jobs:
           cp -r .lunet/${{ env.LUNET_VERSION }}/* dist/
           cp -r app test dist/
           cp Makefile README.md run.sh dist/
-          [ -f lunet-mcp-sse-scm-1.rockspec ] && cp lunet-mcp-sse-scm-1.rockspec dist/ || true
-          tar -czvf lunet-mcp-sse-macos.tar.gz -C dist .
+          [ -f lunet-mcp-scm-1.rockspec ] && cp lunet-mcp-scm-1.rockspec dist/ || true
+          tar -czvf lunet-mcp-macos.tar.gz -C dist .
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lunet-mcp-sse-macos
-          path: lunet-mcp-sse-macos.tar.gz
+          name: lunet-mcp-macos
+          path: lunet-mcp-macos.tar.gz
 
   build-windows:
     name: Build Windows amd64
@@ -166,16 +166,16 @@ jobs:
           Copy-Item Makefile -Destination dist\
           Copy-Item README.md -Destination dist\
           Copy-Item run.sh -Destination dist\
-          if (Test-Path lunet-mcp-sse-scm-1.rockspec) { Copy-Item lunet-mcp-sse-scm-1.rockspec -Destination dist\ }
+          if (Test-Path lunet-mcp-scm-1.rockspec) { Copy-Item lunet-mcp-scm-1.rockspec -Destination dist\ }
           Push-Location dist
-          7z a ../lunet-mcp-sse-windows-amd64.zip .
+          7z a ../lunet-mcp-windows-amd64.zip .
           Pop-Location
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lunet-mcp-sse-windows-amd64
-          path: lunet-mcp-sse-windows-amd64.zip
+          name: lunet-mcp-windows-amd64
+          path: lunet-mcp-windows-amd64.zip
 
   docker:
     name: Build Docker Image
@@ -188,20 +188,20 @@ jobs:
       - name: Download amd64 binaries
         uses: actions/download-artifact@v4
         with:
-          name: lunet-mcp-sse-linux-amd64
+          name: lunet-mcp-linux-amd64
           path: artifacts/amd64/
 
       - name: Download arm64 binaries
         uses: actions/download-artifact@v4
         with:
-          name: lunet-mcp-sse-linux-arm64
+          name: lunet-mcp-linux-arm64
           path: artifacts/arm64/
 
       - name: Prepare staging
         run: |
           for arch in amd64 arm64; do
             mkdir -p "staging/${arch}"
-            tar -xzf "artifacts/${arch}/lunet-mcp-sse-linux-${arch}.tar.gz" -C "staging/${arch}"
+            tar -xzf "artifacts/${arch}/lunet-mcp-linux-${arch}.tar.gz" -C "staging/${arch}"
           done
 
       - name: Set up Docker Buildx
@@ -279,10 +279,10 @@ jobs:
 
             | Platform | Archive |
             |----------|---------|
-            | Linux (amd64) | `lunet-mcp-sse-linux-amd64.tar.gz` |
-            | Linux (arm64) | `lunet-mcp-sse-linux-arm64.tar.gz` |
-            | macOS (arm64) | `lunet-mcp-sse-macos.tar.gz` |
-            | Windows (amd64) | `lunet-mcp-sse-windows-amd64.zip` |
+            | Linux (amd64) | `lunet-mcp-linux-amd64.tar.gz` |
+            | Linux (arm64) | `lunet-mcp-linux-arm64.tar.gz` |
+            | macOS (arm64) | `lunet-mcp-macos.tar.gz` |
+            | Windows (amd64) | `lunet-mcp-windows-amd64.zip` |
           files: |
             artifacts/*.tar.gz
             artifacts/*.zip
@@ -317,10 +317,10 @@ jobs:
 
             | Platform | Archive |
             |----------|---------|
-            | Linux (amd64) | `lunet-mcp-sse-linux-amd64.tar.gz` |
-            | Linux (arm64) | `lunet-mcp-sse-linux-arm64.tar.gz` |
-            | macOS (arm64) | `lunet-mcp-sse-macos.tar.gz` |
-            | Windows (amd64) | `lunet-mcp-sse-windows-amd64.zip` |
+            | Linux (amd64) | `lunet-mcp-linux-amd64.tar.gz` |
+            | Linux (arm64) | `lunet-mcp-linux-arm64.tar.gz` |
+            | macOS (arm64) | `lunet-mcp-macos.tar.gz` |
+            | Windows (amd64) | `lunet-mcp-windows-amd64.zip` |
           files: |
             artifacts/*.tar.gz
             artifacts/*.zip

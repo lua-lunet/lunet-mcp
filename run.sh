@@ -15,7 +15,7 @@ LUNET_VERSION=${LUNET_VERSION:-v0.18.2}
 
 export PORT MCP_TRACE
 
-echo "Starting lunet-mcp-sse..."
+echo "Starting lunet-mcp..."
 echo "Port: $PORT"
 echo "Trace: $MCP_TRACE"
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compare memory and image size between lunet-mcp-sse and other MCP implementations
+# Compare memory and image size between lunet-mcp and other MCP implementations
 #
 # Tests:
 # 1. Memory (RSS) after running one Tavily search query
@@ -56,7 +56,7 @@ echo "Base (debian:trixie-slim): $BASE_SIZE"
 
 # Lunet dependencies
 echo ""
-echo "Building lunet-mcp-sse image..."
+echo "Building lunet-mcp image..."
 cat >"$RESULTS_DIR/Dockerfile.lunet" <<'EOF'
 FROM debian:trixie-slim
 RUN apt-get update -qq && apt-get install -y -qq libuv1 libluajit-5.1-2 curl && rm -rf /var/lib/apt/lists/*
@@ -70,14 +70,14 @@ EOF
 if [ ! -f ".tmp/linux-app/bin/lunet" ]; then
 	echo "Downloading Linux arm64 binary..."
 	mkdir -p .tmp/linux-app
-	curl -sL -o .tmp/lunet-mcp-sse-linux-arm64.tar.gz \
-		https://github.com/lua-lunet/lunet-mcp-sse/releases/download/nightly/lunet-mcp-sse-linux-arm64.tar.gz
-	tar -xzf .tmp/lunet-mcp-sse-linux-arm64.tar.gz -C .tmp/linux-app
+	curl -sL -o .tmp/lunet-mcp-linux-arm64.tar.gz \
+		https://github.com/lua-lunet/lunet-mcp/releases/download/nightly/lunet-mcp-linux-arm64.tar.gz
+	tar -xzf .tmp/lunet-mcp-linux-arm64.tar.gz -C .tmp/linux-app
 fi
 
-docker build -q -t lunet-mcp-sse-test -f "$RESULTS_DIR/Dockerfile.lunet" .tmp/linux-app
-LUNET_SIZE=$(docker images lunet-mcp-sse-test --format "{{.Size}}")
-echo "lunet-mcp-sse: $LUNET_SIZE"
+docker build -q -t lunet-mcp-test -f "$RESULTS_DIR/Dockerfile.lunet" .tmp/linux-app
+LUNET_SIZE=$(docker images lunet-mcp-test --format "{{.Size}}")
+echo "lunet-mcp: $LUNET_SIZE"
 
 # Node.js with tavily-mcp
 echo ""
@@ -119,7 +119,7 @@ echo "----------------------------------------------"
 printf "%-25s %s\n" "Implementation" "Size"
 printf "%-25s %s\n" "-------------------------" "----------"
 printf "%-25s %s\n" "Base (debian:trixie-slim)" "$BASE_SIZE"
-printf "%-25s %s\n" "lunet-mcp-sse" "$LUNET_SIZE"
+printf "%-25s %s\n" "lunet-mcp" "$LUNET_SIZE"
 printf "%-25s %s\n" "tavily-mcp (Node.js)" "$NODE_SIZE"
 printf "%-25s %s\n" "tavily-mcp (Bun)" "$BUN_SIZE"
 printf "%-25s %s\n" "FastMCP (Python)" "$PYTHON_SIZE"
@@ -143,8 +143,8 @@ get_container_rss() {
 	docker stats --no-stream --format "{{.MemUsage}}" "$container" 2>/dev/null | awk '{print $1}'
 }
 
-# Test lunet-mcp-sse
-echo "Testing lunet-mcp-sse..."
+# Test lunet-mcp
+echo "Testing lunet-mcp..."
 docker rm -f lunet-test 2>/dev/null || true
 
 # Copy to colima if on macOS
@@ -180,7 +180,7 @@ if [ -n "$SESSION" ]; then
 fi
 
 LUNET_MEM=$(get_container_rss lunet-test)
-echo "lunet-mcp-sse: $LUNET_MEM"
+echo "lunet-mcp: $LUNET_MEM"
 docker stop lunet-test >/dev/null 2>&1
 docker rm lunet-test >/dev/null 2>&1
 
@@ -242,7 +242,7 @@ echo "Memory Usage Summary:"
 echo "----------------------------------------------"
 printf "%-25s %s\n" "Implementation" "Memory"
 printf "%-25s %s\n" "-------------------------" "----------"
-printf "%-25s %s\n" "lunet-mcp-sse" "$LUNET_MEM"
+printf "%-25s %s\n" "lunet-mcp" "$LUNET_MEM"
 printf "%-25s %s\n" "tavily-mcp (Node.js)" "$NODE_MEM"
 printf "%-25s %s\n" "tavily-mcp (Bun)" "$BUN_MEM"
 printf "%-25s %s\n" "FastMCP (Python)" "$PYTHON_MEM"
@@ -250,7 +250,7 @@ echo ""
 
 # Cleanup test images
 echo "Cleaning up test images..."
-docker rmi lunet-mcp-sse-test tavily-mcp-node-test tavily-mcp-bun-test fastmcp-python-test 2>/dev/null || true
+docker rmi lunet-mcp-test tavily-mcp-node-test tavily-mcp-bun-test fastmcp-python-test 2>/dev/null || true
 
 echo ""
 echo -e "${GREEN}Comparison complete!${NC}"

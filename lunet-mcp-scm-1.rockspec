@@ -1,9 +1,9 @@
 rockspec_format = "3.0"
-package = "lunet-mcp-sse"
+package = "lunet-mcp"
 version = "scm-1"
 
 source = {
-    url = "git+https://github.com/lua-lunet/lunet-mcp-sse.git"
+    url = "git+https://github.com/lua-lunet/lunet-mcp.git"
 }
 
 description = {
@@ -20,7 +20,7 @@ description = {
         - Zero-cost tracing
         - Memory-efficient design (~2 MB RSS)
     ]],
-    homepage = "https://github.com/lua-lunet/lunet-mcp-sse",
+    homepage = "https://github.com/lua-lunet/lunet-mcp",
     license = "MIT",
     maintainer = "Lunet Project"
 }

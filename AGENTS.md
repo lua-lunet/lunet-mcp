@@ -1,4 +1,4 @@
-# Agent Notes: lunet-mcp-sse
+# Agent Notes: lunet-mcp
 
 This repository consumes the official Lunet runtime as a pinned binary release (`v0.18.2`) via the vendored fetcher script (`scripts/lunet_fetch_release_v0.18.2.lua`).
 

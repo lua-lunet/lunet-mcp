@@ -2,7 +2,7 @@
 # MCP Server Concurrency Benchmark
 #
 # Compares concurrency handling across different MCP implementations:
-# - lunet-mcp-sse (Lua + libuv)
+# - lunet-mcp (Lua + libuv)
 # - Node.js tavily-mcp
 # - Python FastMCP
 # - Bun tavily-mcp
@@ -191,7 +191,7 @@ benchmark_server() {
 # Start lunet server
 start_lunet() {
 	local port=${1:-8080}
-	log "Starting lunet-mcp-sse on port $port..."
+	log "Starting lunet-mcp on port $port..."
 
 	cd "$(dirname "$0")"
 
@@ -243,13 +243,13 @@ benchmark_all() {
 	local results=()
 
 	# Benchmark lunet
-	log "=== Testing lunet-mcp-sse ==="
+	log "=== Testing lunet-mcp ==="
 	local lunet_pid
 	lunet_pid=$(start_lunet 8080)
 	if [[ -n "$lunet_pid" ]]; then
 		sleep 2 # Let server stabilize
 		local result
-		result=$(benchmark_server "lunet-mcp-sse" 8080 "$lunet_pid")
+		result=$(benchmark_server "lunet-mcp" 8080 "$lunet_pid")
 		results+=("$result")
 		kill "$lunet_pid" 2>/dev/null || true
 		wait "$lunet_pid" 2>/dev/null || true
@@ -291,7 +291,7 @@ all)
 	benchmark_all
 	;;
 lunet)
-	benchmark_single 8080 "lunet-mcp-sse"
+	benchmark_single 8080 "lunet-mcp"
 	;;
 single)
 	benchmark_single "${2:-8080}" "${3:-MCP Server}"
