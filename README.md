@@ -204,6 +204,10 @@ curl http://localhost:8080/
 
 # Connect to SSE stream manually
 curl -N http://localhost:8080/sse
+
+# HTTP framing regression tests (server must be running; fixes
+# lua-lunet/lunet-mcp#22 and lua-lunet/lunet-mcp#23)
+make test-framing
 ```
 
 ## MCP Protocol Flow

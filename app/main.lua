@@ -1,8 +1,11 @@
 #!/usr/bin/env luajit
--- MCP-SSE Tavily Demo Server
--- 
+-- MCP Tavily Demo Server
+--
 -- A minimal MCP (Model Context Protocol) server exposing Tavily search
--- via SSE transport. Uses the Lunet framework for async I/O.
+-- via the Streamable HTTP transport (spec 2025-03-26) and the legacy
+-- HTTP+SSE transport (spec 2024-11-05). Uses the Lunet framework for
+-- async I/O and the upstream lunet.http / lunet.jsonic / lunet.httpc
+-- modules for HTTP framing, JSON, and outbound requests.
 --
 -- Usage:
 --   luajit app/main.lua
@@ -40,6 +43,9 @@ end
 
 local lunet = require("lunet")
 local socket = require("lunet.socket")
+local http = require("lunet.http")
+local jsonic = require("lunet.jsonic")
+local httpc = require("lunet.httpc")
 
 -- Zero-cost tracing (no overhead when MCP_TRACE is not set)
 local trace = require("app.trace")
@@ -49,6 +55,16 @@ local STREAMABLE_HTTP_VERSION = "2025-03-26"
 local SUPPORTED_PROTOCOL_VERSIONS = { STREAMABLE_HTTP_VERSION, MCP_VERSION }
 local SERVER_NAME = "lunet-tavily-mcp-demo"
 local SERVER_VERSION = "0.1.0"
+
+-- dkjson encodes empty tables as []; the MCP spec wants JSON objects
+-- for empty result payloads (ping result, capabilities.tools)
+local EMPTY_OBJECT = setmetatable({}, { __jsontype = "object" })
+
+local CORS = {
+    origin = "*",
+    methods = { "GET", "POST", "DELETE", "OPTIONS" },
+    headers = { "Content-Type", "Mcp-Session-Id", "Last-Event-ID", "MCP-Protocol-Version" },
+}
 
 -- Load .env file
 local function load_env_file(path)
@@ -79,175 +95,6 @@ if not TAVILY_API_KEY then
     trace.warn("CONFIG", "TAVILY_API_KEY not set")
 end
 
--- JSON encoder/decoder (minimal implementation)
-local function escape_json_string(s)
-    s = s:gsub('\\', '\\\\')
-    s = s:gsub('"', '\\"')
-    s = s:gsub('\n', '\\n')
-    s = s:gsub('\r', '\\r')
-    s = s:gsub('\t', '\\t')
-    s = s:gsub('\b', '\\b')
-    s = s:gsub('\f', '\\f')
-    return s
-end
-
-local function json_encode(val)
-    local t = type(val)
-    if val == nil then
-        return "null"
-    elseif t == "boolean" then
-        return val and "true" or "false"
-    elseif t == "number" then
-        if val ~= val then return "null" end
-        if val == math.huge or val == -math.huge then return "null" end
-        return tostring(val)
-    elseif t == "string" then
-        return '"' .. escape_json_string(val) .. '"'
-    elseif t == "table" then
-        local is_array = #val > 0
-        if is_array then
-            local parts = {}
-            for i, v in ipairs(val) do
-                parts[i] = json_encode(v)
-            end
-            return "[" .. table.concat(parts, ",") .. "]"
-        else
-            local parts = {}
-            for k, v in pairs(val) do
-                if type(k) == "string" then
-                    parts[#parts + 1] = '"' .. escape_json_string(k) .. '":' .. json_encode(v)
-                end
-            end
-            return "{" .. table.concat(parts, ",") .. "}"
-        end
-    end
-    return "null"
-end
-
-local function json_decode(str)
-    local pos = 1
-    local function skip_ws()
-        pos = str:match("^%s*()", pos)
-    end
-    local function parse_value()
-        skip_ws()
-        local c = str:sub(pos, pos)
-        if c == '"' then
-            local start = pos + 1
-            local i = start
-            local parts = {}
-            while i <= #str do
-                local ch = str:sub(i, i)
-                if ch == '"' then
-                    parts[#parts + 1] = str:sub(start, i - 1)
-                    pos = i + 1
-                    local result = table.concat(parts)
-                    result = result:gsub("\\(.)", function(e)
-                        local escapes = {n="\n", r="\r", t="\t", b="\b", f="\f", ['"']='"', ["\\"]="\\", ["/"]="/"}
-                        return escapes[e] or e
-                    end)
-                    return result
-                elseif ch == "\\" then
-                    parts[#parts + 1] = str:sub(start, i - 1)
-                    i = i + 1
-                    local esc = str:sub(i, i)
-                    if esc == "u" then
-                        local hex = str:sub(i + 1, i + 4)
-                        local cp = tonumber(hex, 16)
-                        if cp then
-                            if cp < 0x80 then
-                                parts[#parts + 1] = string.char(cp)
-                            elseif cp < 0x800 then
-                                parts[#parts + 1] = string.char(
-                                    0xC0 + math.floor(cp / 64),
-                                    0x80 + (cp % 64))
-                            else
-                                parts[#parts + 1] = string.char(
-                                    0xE0 + math.floor(cp / 4096),
-                                    0x80 + math.floor((cp % 4096) / 64),
-                                    0x80 + (cp % 64))
-                            end
-                        else
-                            parts[#parts + 1] = "?"
-                        end
-                        i = i + 5
-                    else
-                        i = i + 1
-                    end
-                    start = i
-                else
-                    i = i + 1
-                end
-            end
-            error("Unterminated string")
-        elseif c == "{" then
-            pos = pos + 1
-            local obj = {}
-            skip_ws()
-            if str:sub(pos, pos) == "}" then
-                pos = pos + 1
-                return obj
-            end
-            while true do
-                skip_ws()
-                local key = parse_value()
-                skip_ws()
-                if str:sub(pos, pos) ~= ":" then error("Expected ':'") end
-                pos = pos + 1
-                local val = parse_value()
-                obj[key] = val
-                skip_ws()
-                local sep = str:sub(pos, pos)
-                if sep == "}" then
-                    pos = pos + 1
-                    return obj
-                elseif sep == "," then
-                    pos = pos + 1
-                else
-                    error("Expected ',' or '}'")
-                end
-            end
-        elseif c == "[" then
-            pos = pos + 1
-            local arr = {}
-            skip_ws()
-            if str:sub(pos, pos) == "]" then
-                pos = pos + 1
-                return arr
-            end
-            while true do
-                arr[#arr + 1] = parse_value()
-                skip_ws()
-                local sep = str:sub(pos, pos)
-                if sep == "]" then
-                    pos = pos + 1
-                    return arr
-                elseif sep == "," then
-                    pos = pos + 1
-                else
-                    error("Expected ',' or ']'")
-                end
-            end
-        elseif str:sub(pos, pos + 3) == "true" then
-            pos = pos + 4
-            return true
-        elseif str:sub(pos, pos + 4) == "false" then
-            pos = pos + 5
-            return false
-        elseif str:sub(pos, pos + 3) == "null" then
-            pos = pos + 4
-            return nil
-        elseif c == "-" or c:match("%d") then
-            local num_str = str:match("^-?%d+%.?%d*[eE]?[+-]?%d*", pos)
-            pos = pos + #num_str
-            return tonumber(num_str)
-        else
-            error("Unexpected character: " .. c .. " at position " .. pos)
-        end
-    end
-    return parse_value()
-end
-
 -- Session ID generator
 local function random_id()
     local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -273,7 +120,7 @@ end
 
 -- JSON-RPC helpers
 local function jsonrpc_response(id, result)
-    return json_encode({
+    return jsonic.encode({
         jsonrpc = "2.0",
         id = id,
         result = result,
@@ -281,7 +128,7 @@ local function jsonrpc_response(id, result)
 end
 
 local function jsonrpc_error(id, code, message)
-    return json_encode({
+    return jsonic.encode({
         jsonrpc = "2.0",
         id = id,
         error = {
@@ -291,179 +138,14 @@ local function jsonrpc_error(id, code, message)
     })
 end
 
--- HTTP request parser
-local function parse_http_request(data)
-    local req = {headers = {}, body = nil}
-    local header_end = data:find("\r\n\r\n")
-    if not header_end then return nil end
-
-    local header_section = data:sub(1, header_end - 1)
-    local body = data:sub(header_end + 4)
-
-    local first_line = header_section:match("^([^\r\n]+)")
-    if not first_line then return nil end
-
-    req.method, req.path = first_line:match("^(%S+)%s+(%S+)")
-    if not req.method then return nil end
-
-    local path_only, query = req.path:match("^([^?]+)%??(.*)")
-    req.path = path_only or req.path
-    req.query = {}
-    if query and query ~= "" then
-        for pair in query:gmatch("[^&]+") do
-            local k, v = pair:match("^([^=]+)=?(.*)")
-            if k then req.query[k] = v or "" end
-        end
-    end
-
-    for line in header_section:gmatch("\r\n([^\r\n]+)") do
-        local name, value = line:match("^([^:]+):%s*(.*)$")
-        if name then
-            req.headers[name:lower()] = value
-        end
-    end
-
-    local content_length = req.headers["content-length"]
-    if content_length then
-        content_length = tonumber(content_length)
-        if content_length and content_length > 0 then
-            req.body = body:sub(1, content_length)
-        end
-    end
-
-    return req
-end
-
--- HTTP response builder
-local function http_response(status, headers, body)
-    local status_texts = {
-        [200] = "OK", [202] = "Accepted", [400] = "Bad Request",
-        [404] = "Not Found", [405] = "Method Not Allowed",
-        [500] = "Internal Server Error",
-    }
-    local parts = {"HTTP/1.1 " .. status .. " " .. (status_texts[status] or "OK") .. "\r\n"}
-    headers = headers or {}
-    if body and not headers["Content-Length"] then
-        headers["Content-Length"] = #body
-    end
-    for name, value in pairs(headers) do
-        parts[#parts + 1] = name .. ": " .. tostring(value) .. "\r\n"
-    end
-    parts[#parts + 1] = "\r\n"
-    if body then parts[#parts + 1] = body end
-    return table.concat(parts)
-end
-
--- Shell escape for curl
-local function shell_escape(s)
-    return "'" .. s:gsub("'", "'\\''") .. "'"
-end
-
--- Parse URL into components
-local function parse_url(url)
-    local protocol, host, port, path = url:match("^(https?)://([^:/]+):?(%d*)(/?.*)$")
-    if not protocol then
-        return nil, "Invalid URL"
-    end
-    port = tonumber(port) or (protocol == "https" and 443 or 80)
-    path = path == "" and "/" or path
-    return {protocol = protocol, host = host, port = port, path = path}
-end
-
--- Async HTTP POST using lunet sockets (for HTTP only, not HTTPS)
-local function http_post_async(url, body, headers)
-    local parsed, err = parse_url(url)
-    if not parsed then
-        return nil, err
-    end
-    
-    if parsed.protocol == "https" then
-        -- Fall back to curl for HTTPS (no TLS in lunet)
-        return nil, "HTTPS_FALLBACK"
-    end
-    
-    -- Resolve localhost to 127.0.0.1 (lunet socket doesn't do DNS)
-    local connect_host = parsed.host
-    if connect_host == "localhost" then
-        connect_host = "127.0.0.1"
-    end
-    
-    local client, conn_err = socket.connect(connect_host, parsed.port)
-    if not client then
-        return nil, "Connection failed: " .. (conn_err or "unknown")
-    end
-    
-    -- Build HTTP request
-    local req_lines = {
-        "POST " .. parsed.path .. " HTTP/1.1",
-        "Host: " .. parsed.host .. ":" .. parsed.port,
-        "Content-Type: application/json",
-        "Content-Length: " .. #body,
-        "Connection: close",
-    }
-    
-    for name, value in pairs(headers or {}) do
-        req_lines[#req_lines + 1] = name .. ": " .. value
-    end
-    
-    req_lines[#req_lines + 1] = ""
-    req_lines[#req_lines + 1] = body
-    
-    local request = table.concat(req_lines, "\r\n")
-    
-    local write_err = socket.write(client, request)
-    if write_err then
-        socket.close(client)
-        return nil, "Write failed: " .. tostring(write_err)
-    end
-    
-    -- Read response in a loop until EOF (Connection: close)
-    local chunks = {}
-    while true do
-        local chunk = socket.read(client)
-        if not chunk or chunk == "" then break end
-        chunks[#chunks + 1] = chunk
-    end
-    socket.close(client)
-
-    if #chunks == 0 then
-        return nil, "No response received"
-    end
-
-    local response = table.concat(chunks)
-
-    -- Parse status line
-    local status_line = response:match("^(.-)\r\n")
-    if not status_line then
-        return nil, "Invalid HTTP response"
-    end
-    local status_code = tonumber(status_line:match("HTTP/%d%.%d (%d+)"))
-
-    -- Parse HTTP response body
-    local body_start = response:find("\r\n\r\n")
-    if not body_start then
-        return nil, "Invalid HTTP response"
-    end
-
-    local response_body = response:sub(body_start + 4)
-
-    if not status_code or status_code < 200 or status_code >= 300 then
-        return nil, "HTTP " .. tostring(status_code or "???") .. ": " .. response_body:sub(1, 200)
-    end
-
-    return response_body
-end
-
--- Tavily API call - async for HTTP, curl fallback for HTTPS
-local httpc_ok, httpc = pcall(require, "lunet.httpc")
-
+-- Tavily API call via lunet.httpc
 local function tavily_search(query, max_results)
     if not TAVILY_API_KEY then
         return nil, "TAVILY_API_KEY not configured"
     end
 
     max_results = max_results or 5
-    local request_body = json_encode({
+    local request_body = jsonic.encode({
         query = query,
         max_results = max_results,
         include_answer = true,
@@ -471,60 +153,34 @@ local function tavily_search(query, max_results)
     })
 
     local api_url = getenv("TAVILY_API_URL") or "https://api.tavily.com/search"
-    local headers = {
-        ["Authorization"] = "Bearer " .. TAVILY_API_KEY,
-    }
-    
-    -- Try async HTTP first
-    local response, err = http_post_async(api_url, request_body, headers)
-    
-    -- HTTPS: prefer native lunet.httpc when available
-    if err == "HTTPS_FALLBACK" and httpc_ok and httpc and type(httpc.request) == "function" then
-        trace.debug("HTTP", "Using lunet.httpc for HTTPS")
-        local resp, herr = httpc.request({
-            url = api_url,
-            method = "POST",
-            headers = {
-                ["Content-Type"] = "application/json",
-                ["Authorization"] = "Bearer " .. TAVILY_API_KEY,
-            },
-            body = request_body,
-            timeout_ms = 30000,
-            max_body_bytes = 5 * 1024 * 1024,
-        })
-        if not resp then
-            return nil, "Tavily HTTPS request failed: " .. (herr or "unknown")
-        end
-        response = resp.body
-    elseif err == "HTTPS_FALLBACK" then
-        trace.debug("HTTP", "Using curl fallback for HTTPS")
-        local cmd = "curl -s -X POST " .. shell_escape(api_url) .. " " ..
-                    "-H 'Content-Type: application/json' " ..
-                    "-H " .. shell_escape("Authorization: Bearer " .. TAVILY_API_KEY) .. " " ..
-                    "-d " .. shell_escape(request_body)
 
-        local handle = io.popen(cmd)
-        if not handle then
-            return nil, "Failed to execute curl"
-        end
-
-        response = handle:read("*a")
-        handle:close()
-    elseif not response then
-        return nil, err or "Request failed"
+    local resp, herr = httpc.request({
+        url = api_url,
+        method = "POST",
+        headers = {
+            ["Content-Type"] = "application/json",
+            ["Authorization"] = "Bearer " .. TAVILY_API_KEY,
+        },
+        body = request_body,
+        timeout_ms = 30000,
+        max_body_bytes = 5 * 1024 * 1024,
+    })
+    if not resp then
+        return nil, "Tavily request failed: " .. (herr or "unknown")
     end
 
+    local response = resp.body
     if not response or response == "" then
         return nil, "Empty response from Tavily API"
     end
 
-    local ok, result = pcall(json_decode, response)
-    if not ok then
+    local ok, result = pcall(jsonic.decode, response)
+    if not ok or not result then
         return nil, "Failed to parse Tavily response: " .. tostring(result)
     end
 
     if result.error then
-        return nil, "Tavily API error: " .. (result.error or "unknown")
+        return nil, "Tavily API error: " .. tostring(result.error)
     end
 
     return result
@@ -547,7 +203,7 @@ local tools = {
                     description = "Maximum number of results (1-10, default 5)",
                 },
             },
-            required = {"query"},
+            required = { "query" },
         },
     },
 }
@@ -555,7 +211,7 @@ local tools = {
 -- Handle tool calls
 local function handle_tool_call(name, arguments)
     trace.info("TOOL", "Calling tool: %s", name)
-    
+
     if name == "tavily-search" then
         local query = arguments.query
         local max_results = arguments.max_results or 5
@@ -563,7 +219,7 @@ local function handle_tool_call(name, arguments)
         if max_results < 1 then max_results = 1 end
 
         trace.debug("TOOL", "tavily-search query=%s max_results=%d", query, max_results)
-        
+
         local result, err = tavily_search(query, max_results)
         if not result then
             trace.error("TOOL", "tavily-search failed: %s", err or "unknown")
@@ -572,7 +228,7 @@ local function handle_tool_call(name, arguments)
                 isError = true,
             }
         end
-        
+
         trace.debug("TOOL", "tavily-search returned %d results", result.results and #result.results or 0)
 
         local output = {}
@@ -624,7 +280,7 @@ local function handle_mcp_request(msg)
         return jsonrpc_response(id, {
             protocolVersion = negotiated,
             capabilities = {
-                tools = {},
+                tools = EMPTY_OBJECT,
             },
             serverInfo = {
                 name = SERVER_NAME,
@@ -643,7 +299,7 @@ local function handle_mcp_request(msg)
         local result = handle_tool_call(tool_name, arguments)
         return jsonrpc_response(id, result)
     elseif method == "ping" then
-        return jsonrpc_response(id, {})
+        return jsonrpc_response(id, EMPTY_OBJECT)
     else
         return jsonrpc_error(id, -32601, "Method not found: " .. (method or "nil"))
     end
@@ -655,62 +311,117 @@ local sessions = {}
 -- Streamable HTTP sessions (POST /mcp transport, spec 2025-03-26)
 local mcp_sessions = {}
 
-local function mcp_error_body(code, message)
-    return json_encode({
-        jsonrpc = "2.0",
-        error = {
-            code = code,
-            message = message,
-        },
-    })
+-- Write a raw SSE response head (no Content-Length: the stream length is
+-- unknown; the connection close or keep-alive delimits it)
+local function write_sse_head(client, connection, extra_headers)
+    local header_str = "HTTP/1.1 200 OK\r\n"
+        .. "Content-Type: text/event-stream\r\n"
+        .. "Cache-Control: no-cache\r\n"
+    if connection == "close" then
+        header_str = header_str .. "Connection: close\r\n"
+    else
+        header_str = header_str .. "Connection: keep-alive\r\n"
+    end
+    for k, v in pairs(extra_headers or {}) do
+        header_str = header_str .. k .. ": " .. v .. "\r\n"
+    end
+    for k, v in pairs(http.cors_headers(CORS)) do
+        header_str = header_str .. k .. ": " .. v .. "\r\n"
+    end
+    header_str = header_str .. "\r\n"
+    socket.write(client, header_str)
 end
 
-local function wants_sse_response(req)
-    local accept = req.headers["accept"] or ""
-    return accept:find("text/event-stream", 1, true) ~= nil
+-- Handle SSE connection (legacy transport)
+local function handle_sse_request(client)
+    write_sse_head(client, "keep-alive")
+
+    local session_id = random_id()
+    local endpoint = "/message?session=" .. session_id
+    socket.write(client, sse_event("endpoint", endpoint))
+
+    sessions[session_id] = {
+        client = client,
+        messages = {},
+    }
+
+    trace.info("SSE", "Session %s connected", session_id)
+end
+
+-- Handle legacy message POST
+local function handle_message_request(client, request)
+    local session_id = request.query_params.session
+    if not session_id then
+        socket.write(client, http.response(400, {}, jsonrpc_error(nil, -32600, "session parameter required"), CORS, false))
+        return "close"
+    end
+
+    local session = sessions[session_id]
+    if not session then
+        socket.write(client, http.response(404, {}, jsonic.encode({error = "Session not found"}), CORS, false))
+        return "close"
+    end
+
+    if not request.body or request.body == "" then
+        socket.write(client, http.response(400, {}, jsonic.encode({error = "Empty body"}), CORS, false))
+        return "close"
+    end
+
+    local ok, msg = pcall(jsonic.decode, request.body)
+    if not ok or type(msg) ~= "table" or msg == jsonic.null then
+        socket.write(client, http.response(400, {}, jsonic.encode({error = "Invalid JSON"}), CORS, false))
+        return "close"
+    end
+
+    socket.write(client, http.response(202, {}, "", CORS, false))
+
+    local response = handle_mcp_request(msg)
+    if response and session.client then
+        local err = socket.write(session.client, sse_event("message", response))
+        if err then
+            trace.info("SSE", "Session %s disconnected: %s", session_id, tostring(err))
+            socket.close(session.client)
+            sessions[session_id] = nil
+        end
+    end
+
+    return "close"
 end
 
 -- Handle POST /mcp (Streamable HTTP transport)
-local function handle_mcp_post(client, req)
-    local extra_headers = {
-        ["Access-Control-Allow-Origin"] = "*",
-    }
+local function handle_mcp_post(client, request)
+    local persistent = request.persistent_connection
+        and (request.headers["connection"] or ""):lower() ~= "close"
 
-    local function respond_json(status, body)
-        extra_headers["Content-Type"] = "application/json"
-        socket.write(client, http_response(status, extra_headers, body))
-        socket.close(client)
+    local function respond_json(status, body, extra_headers)
+        local headers = { ["Access-Control-Expose-Headers"] = "Mcp-Session-Id" }
+        for k, v in pairs(extra_headers or {}) do
+            headers[k] = v
+        end
+        socket.write(client, http.response(status, headers, body, CORS, persistent))
     end
 
-    local function respond_sse(responses)
-        local header_str = "HTTP/1.1 200 OK\r\n"
-            .. "Content-Type: text/event-stream\r\n"
-            .. "Cache-Control: no-cache\r\n"
-            .. "Connection: close\r\n"
-        for k, v in pairs(extra_headers) do
-            header_str = header_str .. k .. ": " .. v .. "\r\n"
-        end
-        header_str = header_str .. "\r\n"
-        socket.write(client, header_str)
+    local function respond_sse(responses, extra_headers)
+        write_sse_head(client, "close", extra_headers)
         for _, r in ipairs(responses) do
             socket.write(client, sse_event("message", r))
         end
-        socket.close(client)
     end
 
-    if not req.body or req.body == "" then
-        respond_json(400, mcp_error_body(-32600, "Invalid Request: empty body"))
-        return
+    if not request.body or request.body == "" then
+        respond_json(400, jsonrpc_error(nil, -32600, "Invalid Request: empty body"))
+        return "close"
     end
 
-    local ok, msg = pcall(json_decode, req.body)
-    if not ok or type(msg) ~= "table" then
-        respond_json(400, mcp_error_body(-32700, "Parse error"))
-        return
+    local ok, msg = pcall(jsonic.decode, request.body)
+    if not ok or type(msg) ~= "table" or msg == jsonic.null then
+        respond_json(400, jsonrpc_error(nil, -32700, "Parse error"))
+        return "close"
     end
 
     local messages = {}
-    if msg[1] ~= nil then
+    local is_batch = msg[1] ~= nil
+    if is_batch then
         for _, m in ipairs(msg) do
             messages[#messages + 1] = m
         end
@@ -726,21 +437,20 @@ local function handle_mcp_post(client, req)
     end
 
     if not has_initialize then
-        local session_id = req.headers["mcp-session-id"]
+        local session_id = request.headers["mcp-session-id"]
         if not session_id or session_id == "" then
-            respond_json(400, mcp_error_body(-32600, "Missing Mcp-Session-Id header"))
-            return
+            respond_json(400, jsonrpc_error(nil, -32600, "Missing Mcp-Session-Id header"))
+            return "close"
         end
         if not mcp_sessions[session_id] then
-            respond_json(404, mcp_error_body(-32600, "Session not found"))
-            return
+            respond_json(404, jsonrpc_error(nil, -32600, "Session not found"))
+            return "close"
         end
     end
 
     local responses = {}
-    local is_batch = msg[1] ~= nil
     for _, m in ipairs(messages) do
-        if type(m) ~= "table" then
+        if type(m) ~= "table" or m == jsonic.null then
             responses[#responses + 1] = jsonrpc_error(nil, -32600, "Invalid Request")
         elseif m.method == nil and (m.result ~= nil or m.error ~= nil) then
             trace.debug("MCP", "Ignoring client response message")
@@ -752,6 +462,7 @@ local function handle_mcp_post(client, req)
         end
     end
 
+    local extra_headers = {}
     if has_initialize then
         local session_id = random_id()
         mcp_sessions[session_id] = { created = os.time() }
@@ -760,180 +471,68 @@ local function handle_mcp_post(client, req)
     end
 
     if #responses == 0 then
-        socket.write(client, http_response(202, extra_headers, ""))
-        socket.close(client)
-        return
+        respond_json(202, "", extra_headers)
+        return "close"
     end
 
-    if wants_sse_response(req) then
-        respond_sse(responses)
-    else
-        local body = responses[1]
-        if is_batch then
-            body = "[" .. table.concat(responses, ",") .. "]"
-        end
-        respond_json(200, body)
+    if (request.headers["accept"] or ""):find("text/event-stream", 1, true) then
+        respond_sse(responses, extra_headers)
+        return "close"
     end
+
+    local body = responses[1]
+    if is_batch then
+        body = "[" .. table.concat(responses, ",") .. "]"
+    end
+    respond_json(200, body, extra_headers)
+
+    return persistent and "keep" or "close"
 end
 
 -- Handle DELETE /mcp (session termination)
-local function handle_mcp_delete(client, req)
-    local session_id = req.headers["mcp-session-id"]
+local function handle_mcp_delete(client, request)
+    local session_id = request.headers["mcp-session-id"]
     if session_id and mcp_sessions[session_id] then
         mcp_sessions[session_id] = nil
         trace.info("MCP", "Streamable HTTP session %s terminated", session_id)
-        socket.write(client, http_response(200, {
-            ["Access-Control-Allow-Origin"] = "*",
-        }, ""))
+        socket.write(client, http.response(200, {}, "", CORS, false))
     else
-        socket.write(client, http_response(404, {
-            ["Access-Control-Allow-Origin"] = "*",
-        }, ""))
+        socket.write(client, http.response(404, {}, "", CORS, false))
     end
-    socket.close(client)
+    return "close"
 end
 
--- Handle SSE connection
-local function handle_sse_request(client, session_id)
-    local headers = {
-        ["Content-Type"] = "text/event-stream",
-        ["Cache-Control"] = "no-cache",
-        ["Connection"] = "keep-alive",
-        ["Access-Control-Allow-Origin"] = "*",
-    }
+-- Route one parsed request. Returns "keep" (serve more requests on this
+-- connection), "close" (connection consumed), or "hold" (stream left open).
+local function route_request(client, request)
+    trace.debug("HTTP", "%s %s", request.method, request.path)
 
-    local header_str = "HTTP/1.1 200 OK\r\n"
-    for k, v in pairs(headers) do
-        header_str = header_str .. k .. ": " .. v .. "\r\n"
-    end
-    header_str = header_str .. "\r\n"
-    socket.write(client, header_str)
-
-    local endpoint = "/message?session=" .. session_id
-    socket.write(client, sse_event("endpoint", endpoint))
-
-    sessions[session_id] = {
-        client = client,
-        messages = {},
-    }
-
-    trace.info("SSE", "Session %s connected", session_id)
-end
-
--- Handle message POST
-local function handle_message_request(client, req, session_id)
-    local session = sessions[session_id]
-    if not session then
-        socket.write(client, http_response(404, {
-            ["Content-Type"] = "application/json",
-        }, json_encode({error = "Session not found"})))
-        socket.close(client)
-        return
+    if request.method == "OPTIONS" then
+        socket.write(client, http.preflight_response(CORS, false))
+        return "close"
     end
 
-    if not req.body or req.body == "" then
-        socket.write(client, http_response(400, {
-            ["Content-Type"] = "application/json",
-        }, json_encode({error = "Empty body"})))
-        socket.close(client)
-        return
+    if request.path == "/sse" and request.method == "GET" then
+        handle_sse_request(client)
+        return "hold"
     end
 
-    local ok, msg = pcall(json_decode, req.body)
-    if not ok then
-        socket.write(client, http_response(400, {
-            ["Content-Type"] = "application/json",
-        }, json_encode({error = "Invalid JSON"})))
-        socket.close(client)
-        return
-    end
-
-    socket.write(client, http_response(202, {}, ""))
-    socket.close(client)
-
-    local response = handle_mcp_request(msg)
-    if response and session.client then
-        local err = socket.write(session.client, sse_event("message", response))
-        if err then
-            trace.info("SSE", "Session %s disconnected: %s", session_id, tostring(err))
-            socket.close(session.client)
-            sessions[session_id] = nil
-        end
-    end
-end
-
--- Main client handler
-local function handle_client(client)
-    local data = socket.read(client)
-    if not data then
-        trace.trace("HTTP", "Client disconnected before sending data")
-        socket.close(client)
-        return
-    end
-
-    local req = parse_http_request(data)
-    if not req then
-        trace.warn("HTTP", "Bad request: could not parse HTTP")
-        socket.write(client, http_response(400, {}, "Bad Request"))
-        socket.close(client)
-        return
-    end
-
-    trace.debug("HTTP", "%s %s", req.method, req.path)
-
-    -- CORS preflight
-    if req.method == "OPTIONS" then
-        socket.write(client, http_response(200, {
-            ["Access-Control-Allow-Origin"] = "*",
-            ["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS",
-            ["Access-Control-Allow-Headers"] = "Content-Type, Mcp-Session-Id, Last-Event-ID, MCP-Protocol-Version",
-            ["Access-Control-Expose-Headers"] = "Mcp-Session-Id",
-        }, ""))
-        socket.close(client)
-        return
-    end
-
-    -- SSE endpoint
-    if req.path == "/sse" and req.method == "GET" then
-        local session_id = random_id()
-        handle_sse_request(client, session_id)
-        return
-    end
-
-    -- Streamable HTTP endpoint (spec 2025-03-26)
-    if req.path == "/mcp" then
-        if req.method == "POST" then
-            handle_mcp_post(client, req)
-            return
-        elseif req.method == "DELETE" then
-            handle_mcp_delete(client, req)
-            return
-        elseif req.method == "GET" then
-            socket.write(client, http_response(405, {
-                ["Allow"] = "POST, DELETE",
-                ["Access-Control-Allow-Origin"] = "*",
-            }, ""))
-            socket.close(client)
-            return
+    if request.path == "/mcp" then
+        if request.method == "POST" then
+            return handle_mcp_post(client, request)
+        elseif request.method == "DELETE" then
+            return handle_mcp_delete(client, request)
+        elseif request.method == "GET" then
+            socket.write(client, http.response(405, { ["Allow"] = "POST, DELETE" }, "", CORS, false))
+            return "close"
         end
     end
 
-    -- Message endpoint
-    if req.path == "/message" and req.method == "POST" then
-        local session_id = req.query.session
-        if not session_id then
-            socket.write(client, http_response(400, {
-                ["Content-Type"] = "application/json",
-            }, json_encode({error = "session parameter required"})))
-            socket.close(client)
-            return
-        end
-        handle_message_request(client, req, session_id)
-        return
+    if request.path == "/message" and request.method == "POST" then
+        return handle_message_request(client, request)
     end
 
-    -- Server info endpoint
-    if req.path == "/" and req.method == "GET" then
+    if request.path == "/" and request.method == "GET" then
         local info = {
             name = SERVER_NAME,
             version = SERVER_VERSION,
@@ -949,15 +548,46 @@ local function handle_client(client)
         for _, tool in ipairs(tools) do
             info.tools[#info.tools + 1] = tool.name
         end
-        socket.write(client, http_response(200, {
-            ["Content-Type"] = "application/json",
-        }, json_encode(info)))
-        socket.close(client)
-        return
+        socket.write(client, http.json_response(200, info, CORS, false))
+        return "close"
     end
 
-    socket.write(client, http_response(404, {}, "Not Found"))
-    socket.close(client)
+    socket.write(client, http.response(404, {}, "Not Found", nil, false))
+    return "close"
+end
+
+-- Main client handler: one connection, sequential requests until the
+-- client closes, a framing error, or a request-declared close.
+local function handle_client(client)
+    local conn = http.new_connection(function()
+        local chunk, read_err = socket.read(client)
+        if not chunk then return nil, read_err end
+        return chunk
+    end)
+
+    while true do
+        local request, err, status = conn:next_request()
+        if not request and not status then
+            socket.close(client)
+            return
+        end
+        if not request then
+            socket.write(client, http.error_response(status or 400, { err }, nil, false))
+            socket.close(client)
+            return
+        end
+
+        local outcome = route_request(client, request)
+        if outcome == "hold" then
+            return
+        end
+        if outcome ~= "keep"
+            or not request.persistent_connection
+            or (request.headers["connection"] or ""):lower() == "close" then
+            socket.close(client)
+            return
+        end
+    end
 end
 
 -- Initialize random seed
@@ -976,18 +606,18 @@ lunet.spawn(function()
 
     trace.info("SERVER", "Starting on port %d", port)
     if VERBOSE then
-        print("MCP-SSE Tavily Demo Server")
-        print("==========================")
-        print("Protocol: MCP " .. MCP_VERSION)
+        print("MCP Tavily Demo Server")
+        print("======================")
+        print("Protocol: MCP " .. MCP_VERSION .. " / " .. STREAMABLE_HTTP_VERSION)
         print("Server:   " .. SERVER_NAME .. " v" .. SERVER_VERSION)
         print("Port:     http://" .. host .. ":" .. port)
         print("")
         print("Endpoints:")
         print("  GET  /       -> Server info")
-        print("  GET  /sse    -> SSE stream (creates session, legacy transport)")
-        print("  POST /message?session=<id> -> Send JSON-RPC message (legacy transport)")
         print("  POST /mcp    -> Streamable HTTP transport (JSON or SSE responses)")
         print("  DELETE /mcp  -> Terminate Streamable HTTP session")
+        print("  GET  /sse    -> SSE stream (creates session, legacy transport)")
+        print("  POST /message?session=<id> -> Send JSON-RPC message (legacy transport)")
         print("")
         print("Tools: tavily-search")
         print("")
