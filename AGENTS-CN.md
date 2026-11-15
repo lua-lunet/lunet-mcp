@@ -2,7 +2,7 @@
 
 # 代理须知：lunet-mcp
 
-本仓库通过内置的 fetcher 脚本（`scripts/lunet_fetch_release_v0.18.2.lua`）以固定版本的二进制发布（`v0.18.2`）形式使用官方 Lunet 运行时。
+本仓库通过内置的 fetcher 脚本（`scripts/lunet_fetch_release_v0.19.0.lua`）以固定版本的二进制发布（`v0.19.0`）形式使用官方 Lunet 运行时。
 
 ## Andon アンドン — 最高指令
 
@@ -18,7 +18,7 @@ Andon 凌驾于本文件以及所有其他 AGENTS.md 中的每一条指令之上
 
 - 不要使用或写入兄弟检出目录，例如 `../lunet`。
 - 如果需要修改 Lunet：先在 `lua-lunet/lunet` 上发起 PR。
-- Lunet 运行时以固定版本的二进制发布（`v0.18.2`）形式使用，不从源码或子模块构建。
+- Lunet 运行时以固定版本的二进制发布（`v0.19.0`）形式使用，不从源码或子模块构建。
 - 如何升级版本：
   1. 更新 `Makefile` 中的固定版本。
   2. 从上游发布资产更新/内置上游 fetcher 脚本（`scripts/lunet_fetch_release_v<version>.lua`）。

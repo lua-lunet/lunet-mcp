@@ -2,7 +2,7 @@
 
 # lunet-mcp
 
-[![Lunet v0.18.2](https://img.shields.io/badge/Lunet-v0.18.2-blue?logo=lua&logoColor=white)](https://github.com/lua-lunet/lunet/releases/tag/v0.18.2)
+[![Lunet v0.19.0](https://img.shields.io/badge/Lunet-v0.19.0-blue?logo=lua&logoColor=white)](https://github.com/lua-lunet/lunet/releases/tag/v0.19.0)
 
 一个最小化的 MCP（Model Context Protocol）服务器，基于 [Lunet](https://github.com/lua-lunet/lunet) 框架，演示 Tavily 网页搜索。同时支持现代的 **Streamable HTTP** 传输（2025-03-26 规范）与传统的 **HTTP+SSE** 传输（2024-11-05 规范）。
 
@@ -234,7 +234,7 @@ curl -N http://localhost:8080/sse
 
 ## 开发与运行
 
-通过内置的 fetcher 脚本使用官方预构建的 Lunet v0.18.2 发布归档。
+通过内置的 fetcher 脚本使用官方预构建的 Lunet v0.19.0 发布归档。
 
 ### 前置要求
 
@@ -250,7 +250,7 @@ curl -N http://localhost:8080/sse
 git clone https://github.com/lua-lunet/lunet-mcp.git
 cd lunet-mcp
 
-# 获取预构建的 Lunet v0.18.2 运行时与类型定义
+# 获取预构建的 Lunet v0.19.0 运行时与类型定义
 make build
 
 # 配置 API 密钥
