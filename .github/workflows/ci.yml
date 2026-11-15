@@ -18,7 +18,7 @@ permissions:
   packages: write
 
 env:
-  LUNET_VERSION: v0.18.2
+  LUNET_VERSION: v0.19.0
 
 jobs:
   build-linux-amd64:
@@ -35,7 +35,7 @@ jobs:
       - name: Fetch Lunet Runtime
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: luajit scripts/lunet_fetch_release_v0.18.2.lua
+        run: luajit scripts/lunet_fetch_release_v0.19.0.lua
 
       - name: Smoke Test
         run: |
@@ -75,7 +75,7 @@ jobs:
       - name: Fetch Lunet Runtime
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: luajit scripts/lunet_fetch_release_v0.18.2.lua
+        run: luajit scripts/lunet_fetch_release_v0.19.0.lua
 
       - name: Smoke Test
         run: |
@@ -113,7 +113,7 @@ jobs:
       - name: Fetch Lunet Runtime
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: luajit scripts/lunet_fetch_release_v0.18.2.lua
+        run: luajit scripts/lunet_fetch_release_v0.19.0.lua
 
       - name: Smoke Test
         run: |
@@ -142,7 +142,7 @@ jobs:
   build-windows:
     name: Build Windows amd64
     runs-on: windows-latest
-    # Non-blocking: upstream v0.18.2 Windows archive lacks lunet.jsonic et al
+    # Non-blocking: upstream v0.19.0 Windows archive lacks lunet.jsonic et al
     # (lua-lunet/lunet#268), so the smoke test fails. Re-block once upstream
     # publishes a fixed Windows archive.
     continue-on-error: true

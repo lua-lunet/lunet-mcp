@@ -3,7 +3,7 @@
 # A demo MCP-SSE server for Tavily search using the Lunet framework.
 # Consumes the official Lunet binary release.
 
-LUNET_VERSION ?= v0.18.2
+LUNET_VERSION ?= v0.19.0
 FETCHER := ./scripts/lunet_fetch_release_$(LUNET_VERSION).lua
 
 LUA_CMD := $(shell command -v lua 2>/dev/null || command -v luajit 2>/dev/null || echo "")

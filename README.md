@@ -1,6 +1,6 @@
 # lunet-mcp
 
-[![Lunet v0.18.2](https://img.shields.io/badge/Lunet-v0.18.2-blue?logo=lua&logoColor=white)](https://github.com/lua-lunet/lunet/releases/tag/v0.18.2)
+[![Lunet v0.19.0](https://img.shields.io/badge/Lunet-v0.19.0-blue?logo=lua&logoColor=white)](https://github.com/lua-lunet/lunet/releases/tag/v0.19.0)
 
 A minimal MCP (Model Context Protocol) server demonstrating Tavily web search, built on the [Lunet](https://github.com/lua-lunet/lunet) framework. Supports both the modern **Streamable HTTP** transport (spec 2025-03-26) and the legacy **HTTP+SSE** transport (spec 2024-11-05).
 
@@ -267,7 +267,7 @@ Search the web using Tavily AI search engine.
 
 ## Development and Running
 
-Consumes official pre-built Lunet v0.18.2 release archives via the vendored fetcher script.
+Consumes official pre-built Lunet v0.19.0 release archives via the vendored fetcher script.
 
 ### Prerequisites
 
@@ -283,7 +283,7 @@ Consumes official pre-built Lunet v0.18.2 release archives via the vendored fetc
 git clone https://github.com/lua-lunet/lunet-mcp.git
 cd lunet-mcp
 
-# Fetch pre-built Lunet v0.18.2 runtime and type definitions
+# Fetch pre-built Lunet v0.19.0 runtime and type definitions
 make build
 
 # Configure API key
