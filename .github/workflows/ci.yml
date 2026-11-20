@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -20,8 +23,13 @@ permissions:
 env:
   LUNET_VERSION: v0.19.0
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-linux-amd64:
+    timeout-minutes: 25
     name: Build Linux amd64
     runs-on: ubuntu-24.04
     steps:
@@ -62,6 +70,7 @@ jobs:
           path: lunet-mcp-linux-amd64.tar.gz
 
   build-linux-arm64:
+    timeout-minutes: 25
     name: Build Linux arm64
     runs-on: ubuntu-24.04-arm
     steps:
@@ -102,6 +111,7 @@ jobs:
           path: lunet-mcp-linux-arm64.tar.gz
 
   build-macos:
+    timeout-minutes: 25
     name: Build macOS
     runs-on: macos-latest
     steps:
@@ -140,6 +150,7 @@ jobs:
           path: lunet-mcp-macos.tar.gz
 
   build-windows:
+    timeout-minutes: 25
     name: Build Windows amd64
     runs-on: windows-latest
     # Non-blocking: upstream v0.19.0 Windows archive lacks lunet.jsonic et al
@@ -188,6 +199,7 @@ jobs:
           path: lunet-mcp-windows-amd64.zip
 
   docker:
+    timeout-minutes: 30
     name: Build Docker Image
     runs-on: ubuntu-latest
     needs: [build-linux-amd64, build-linux-arm64]
@@ -254,6 +266,7 @@ jobs:
           docker buildx imagetools inspect ghcr.io/${{ github.repository }}:nightly 2>/dev/null || echo "Images built successfully"
 
   nightly:
+    timeout-minutes: 30
     name: Nightly Release
     runs-on: ubuntu-latest
     needs: [build-linux-amd64, build-linux-arm64, build-macos, build-windows]
@@ -298,6 +311,7 @@ jobs:
             artifacts/*.zip
 
   release:
+    timeout-minutes: 25
     name: Tagged Release
     runs-on: ubuntu-latest
     needs: [build-linux-amd64, build-linux-arm64, build-macos, build-windows]
